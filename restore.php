@@ -12,6 +12,8 @@ if( $_GET['op'] == 'check' ) {
         // TODO: verifica se il file da scaricare è corretto
 
         // TODO: verifica versione MySQL (>= 5.6 e <= 8.0)
+        
+        // TODO: controllare che la cartella di destinazione sia vuota
 
         // Verifica se i dati del database sono corretti
         echo '🔌 Verifica connessione SQL... ';
