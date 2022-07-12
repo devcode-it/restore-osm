@@ -3,6 +3,8 @@ header('Content-Type: text/html');
 
 // Verifica requisiti
 if( $_GET['op'] == 'check' ) {
+    $all_ok = true;
+
     while (@ob_end_flush()){
         /**
          * 1) Verifica connessione MySQL
@@ -12,8 +14,6 @@ if( $_GET['op'] == 'check' ) {
         // TODO: verifica se il file da scaricare è corretto
 
         // TODO: verifica versione MySQL (>= 5.6 e <= 8.0)
-        
-        // TODO: controllare che la cartella di destinazione sia vuota
 
         // Verifica se i dati del database sono corretti
         echo '🔌 Verifica connessione SQL... ';
@@ -23,6 +23,7 @@ if( $_GET['op'] == 'check' ) {
 
         // Check connection
         if ($mysqli -> connect_errno) {
+            $all_ok = false;
             echo '❌<br>'.$mysqli->connect_error;
         } else {
             echo '✔️';
@@ -39,15 +40,17 @@ if( $_GET['op'] == 'check' ) {
 
         $fh = fopen("backup.zip", "w");
         if (false === $fh){
+            $all_ok = false;
             echo '❌<br>Impossibile salvare il file!';
         } else {
             $ch = curl_init();
             curl_setopt($ch, CURLOPT_FAILONERROR, true);
             curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-            curl_setopt($ch, CURLOPT_URL, $_POST['source']);
+            curl_setopt($ch, CURLOPT_URL, str_replace(' ', '%20', $_POST['source']));
             curl_setopt($ch, CURLOPT_FILE, $fh);
             curl_exec($ch);
             if (curl_errno($ch)) {
+                $all_ok = false;
                 echo '❌<br>'.curl_error($ch);
             } else {
                 echo '✔️';
@@ -59,10 +62,12 @@ if( $_GET['op'] == 'check' ) {
         echo '<br>';
         flush();
 
-        echo '
-        <div class="text-center">
-            <button type="button" class="btn btn-success btn-lg" onclick="post(\'?op=restore\', $(\'form\').serialize(), true );">Avvia ripristino!</button>
-        </div>';
+        if ($all_ok) {
+            echo '
+            <div class="text-center">
+                <button type="button" class="btn btn-success btn-lg" onclick="post(\'?op=restore\', $(\'form\').serialize(), true );">Avvia ripristino!</button>
+            </div>';
+        }
         flush();
 
         continue;
@@ -73,6 +78,10 @@ if( $_GET['op'] == 'check' ) {
 
 
 elseif( $_GET['op'] == 'restore'){
+    $skip_permissions = true;
+    include('core.php');
+    include('lib/util.php');
+
     while (@ob_end_flush()){
         /**
          * 3) Unzip
@@ -96,12 +105,20 @@ elseif( $_GET['op'] == 'restore'){
 
 
         /**
-         * 4) TODO: Ripristino database
+         * 5) Creazione file config.in.php
          */
-        echo '🛟 Ripristino database... ';
+        echo '🧹 Creazione file config.inc.php... ';
         flush();
 
-        if (true) {
+        copy('config.example.php', 'config.inc.php');
+        $config = file_get_contents('config.inc.php');
+
+        $config = str_replace('|host|', $_POST['db_host'], $config);
+        $config = str_replace('|username|', $_POST['db_username'], $config);
+        $config = str_replace('|password|', $_POST['db_password'], $config);
+        $config = str_replace('|database|', $_POST['db_name'], $config);
+
+        if ( file_put_contents('config.inc.php', $config) ) {
             echo '✔️';
         } else {
             echo '❌<br>error';
@@ -112,12 +129,51 @@ elseif( $_GET['op'] == 'restore'){
 
 
         /**
-         * 5) TODO: Eliminazione file temporanei
+         * 5) TODO: Ripristino database
          */
-        echo '🧹 Pulizia file... ';
+        echo "🛟 Ripristino database... <div id='progress-db' class='progress'><div class='progress-bar' style='width:0%;'></div></div>\n";
         flush();
 
+        $queries = readSQLFile('database.sql', ';');
+        $count = count($queries);
+        
+        for ($i = 0; $i < $count; ++$i) {
+            $percent = 0;
+            if ($i > 0) {
+                $percent = $i/$count*100;
+            }
+            
+            try {
+                $database->query($queries[$i]);
+                echo "<script>$('#progress-db > div').css('width', '".round($percent, 2)."%').text('".round($percent, 2)."%');</script>\n";
+                flush();
+            } catch (\Exception $e) {
+                echo '❌<br>'.$queries[$i];
+                flush();
+            }
+        }
+
+        echo '✔️';
+        echo '<br>';
+        flush();
+
+        /**
+         * 6) Eliminazione file temporanei
+         */
+        echo '🧹 Pulizia file...<br>';
+        flush();
+
+        echo '- backup.zip ';
         if ( @unlink('backup.zip') ) {
+            echo '✔️';
+        } else {
+            echo '❌<br>error';
+        }
+        echo '<br>';
+        flush();
+
+        echo '- restore.php ';
+        if ( @unlink('restore.php') ) {
             echo '✔️';
         } else {
             echo '❌<br>error';
@@ -126,7 +182,7 @@ elseif( $_GET['op'] == 'restore'){
         echo '<br>';
         flush();
 
-        continue;
+        exit();
     }
 
     exit();
