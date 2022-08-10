@@ -79,8 +79,6 @@ if( $_GET['op'] == 'check' ) {
 
 elseif( $_GET['op'] == 'restore'){
     $skip_permissions = true;
-    include('core.php');
-    include('lib/util.php');
 
     while (@ob_end_flush()){
         /**
@@ -316,3 +314,71 @@ elseif( $_GET['op'] == 'restore'){
         </script>
     </body>
 </html>
+
+<?php
+
+if (!function_exists('readSQLFile')) {
+    /**
+     * Restituisce l'insieme delle query presente nel file specificato.
+     *
+     * @param string $filename  Percorso per il file
+     * @param string $delimiter Delimitatore delle query
+     *
+     * @since 2.3
+     *
+     * @return array
+     */
+    function readSQLFile($filename, $delimiter = ';')
+    {
+        $inString = false;
+        $escChar = false;
+        $query = '';
+        $stringChar = '';
+        $queryLine = [];
+        $queryBlock = file_get_contents($filename);
+        $sqlRows = explode("\n", $queryBlock);
+        $delimiterLen = strlen($delimiter);
+        do {
+            $sqlRow = current($sqlRows)."\n";
+            $sqlRowLen = strlen($sqlRow);
+            for ($i = 0; $i < $sqlRowLen; ++$i) {
+                if ((substr(ltrim($sqlRow), $i, 2) === '--') && !$inString) {
+                    break;
+                }
+                $znak = substr($sqlRow, $i, 1);
+                if ($znak === '\'' || $znak === '"') {
+                    if ($inString) {
+                        if (!$escChar && $znak === $stringChar) {
+                            $inString = false;
+                        }
+                    } else {
+                        $stringChar = $znak;
+                        $inString = true;
+                    }
+                }
+                if ($znak === '\\' && substr($sqlRow, $i - 1, 2) !== '\\\\') {
+                    $escChar = !$escChar;
+                } else {
+                    $escChar = false;
+                }
+                if (substr($sqlRow, $i, $delimiterLen) === $delimiter) {
+                    if (!$inString) {
+                        $query = trim($query);
+                        $delimiterMatch = [];
+                        if (preg_match('/^DELIMITER[[:space:]]*([^[:space:]]+)$/i', $query, $delimiterMatch)) {
+                            $delimiter = $delimiterMatch[1];
+                            $delimiterLen = strlen($delimiter);
+                        } else {
+                            $queryLine[] = $query;
+                        }
+                        $query = '';
+                        continue;
+                    }
+                }
+                $query .= $znak;
+            }
+        } while (next($sqlRows) !== false);
+
+        return $queryLine;
+    }
+}
